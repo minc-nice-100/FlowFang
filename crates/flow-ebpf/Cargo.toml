@@ -1,0 +1,12 @@
+[package]
+name = "flow-ebpf"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+aya.workspace = true
+flow-common = { path = "../flow-common" }
+anyhow.workspace = true
+log.workspace = true
