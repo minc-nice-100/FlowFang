@@ -31,12 +31,12 @@ pub struct FlowKey {
 impl FlowKey {
     /// Get the source IP as a string.
     pub fn src_ip_str(&self) -> String {
-        ipv6_array_to_string(&self.src_ip)
+        flow_common::types::ipv6_array_to_string(&self.src_ip)
     }
 
     /// Get the destination IP as a string.
     pub fn dst_ip_str(&self) -> String {
-        ipv6_array_to_string(&self.dst_ip)
+        flow_common::types::ipv6_array_to_string(&self.dst_ip)
     }
 }
 
@@ -103,17 +103,4 @@ impl TrafficStats {
         flows.truncate(n);
         flows
     }
-}
-
-/// Convert an IPv6 address stored as `[u16; 8]` to a string.
-fn ipv6_array_to_string(addr: &[u16; 8]) -> String {
-    use std::fmt::Write;
-    let mut s = String::with_capacity(39);
-    for (i, segment) in addr.iter().enumerate() {
-        if i > 0 {
-            s.push(':');
-        }
-        write!(s, "{:x}", segment).unwrap();
-    }
-    s
 }

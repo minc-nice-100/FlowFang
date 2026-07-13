@@ -19,8 +19,8 @@ A fixed-size record representing one sampled network packet. Contains:
 | Field | Type | Description |
 |---|---|---|
 | `timestamp` | `u64` | Arrival time in nanoseconds |
-| `src_ip` | `Ipv6Addr` | Source IP (IPv4 mapped to IPv6) |
-| `dst_ip` | `Ipv6Addr` | Destination IP (IPv4 mapped to IPv6) |
+| `src_ip` | `[u16; 8]` | Source IP (IPv4 mapped to IPv6, stored as 8×u16 words) |
+| `dst_ip` | `[u16; 8]` | Destination IP (IPv4 mapped to IPv6) |
 | `src_port` | `u16` | Source port |
 | `dst_port` | `u16` | Destination port |
 | `protocol` | `u8` | IP protocol number (6=TCP, 17=UDP, 1=ICMP) |
@@ -33,6 +33,18 @@ A fixed-size record representing one sampled network packet. Contains:
 ### DpiFingerprint
 
 A rule that identifies a specific traffic pattern. Contains an `id` (UUID), a `name`, a `DpiPattern`, and a `ProcessorAction`. Produced by the analyzer, consumed by the processor.
+
+### RuleUpdate
+
+A fixed-size, `Pod`-compatible representation of `DpiFingerprint` for shared memory transfer. All fields are fixed-size arrays or scalars — no heap allocations. The analyzer converts `DpiFingerprint` → `RuleUpdate` via `From`, writes to `ShmRingBuf<RuleUpdate>`, and the processor reads `RuleUpdate` directly. A sentinel `action = 0xFFFF_FFFF` signals deletion.
+
+**Related terms:** [[DpiFingerprint]], [[ShmRingBuf]], [[flow-processor]]
+
+### RuleUpdate
+
+A fixed-size, `Pod`-compatible representation of `DpiFingerprint` for shared memory transfer. All fields are fixed-size arrays or scalars — no heap allocations. The analyzer converts `DpiFingerprint` → `RuleUpdate` via `From`, writes to shared memory, and the processor reads `RuleUpdate` directly. A sentinel `action = 0xFFFF_FFFF` signals deletion.
+
+**Related terms:** [[DpiFingerprint]], [[ShmRingBuf]], [[flow-processor]]
 
 ### DpiPattern
 

@@ -8,7 +8,7 @@ The user-space loader for the processor eBPF program. Reads fingerprint rules fr
 
 The user-space binary that loads `processor.bpf.o` and manages the rule pipeline. It:
 1. Loads and attaches the processor eBPF program to the interface's TC ingress
-2. Reads `DpiFingerprint` rules from the shared memory buffer (written by the analyzer)
+2. Reads `RuleUpdate` records from the `ShmRingBuf<RuleUpdate>` shared memory buffer (written by the analyzer)
 3. Writes rules into the BPF maps (`FINGERPRINTS` and `ACTIONS`)
 4. Handles graceful shutdown
 

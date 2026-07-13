@@ -22,7 +22,7 @@ struct FlowSample {
     dst_port: u16,
     protocol: u8,
     /// Padding to match userspace alignment.
-    _pad: [u8; 3],
+    pad: [u8; 3],
     payload: [u8; 64],
     payload_len: u16,
     pkt_size: u32,
@@ -44,7 +44,7 @@ pub fn sampler(ctx: TcContext) -> i32 {
         src_port: 0,
         dst_port: 0,
         protocol: 0,
-        _pad: [0u8; 3],
+        pad: [0u8; 3],
         payload: [0u8; 64],
         payload_len: 0,
         pkt_size: 0,

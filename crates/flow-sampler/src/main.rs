@@ -57,8 +57,9 @@ fn main() -> Result<()> {
 
     let args = Args::parse();
 
-    let config = if let Some(config_path) = &args.config {
-        flow_common::config::load_config::<SamplerConfig>(config_path)?
+    let config_path = flow_common::config::resolve_config_path(args.config.as_deref());
+    let config = if let Some(ref path) = config_path {
+        flow_common::config::load_config::<SamplerConfig>(path)?
     } else {
         SamplerConfig {
             iface: args.iface.clone(),

@@ -30,8 +30,9 @@ pub struct FlowSample {
     pub dst_port: u16,
     /// IP protocol number (6=TCP, 17=UDP, 1=ICMP).
     pub protocol: u8,
-    /// Padding for alignment (matches eBPF layout).
-    pub _pad: [u8; 3],
+    /// Padding for C-struct alignment (matches eBPF layout).
+    #[allow(dead_code)]
+    pub pad: [u8; 3],
     /// First 64 bytes of payload.
     pub payload: [u8; 64],
     /// Actual payload length (may be > 64).
@@ -157,11 +158,7 @@ impl From<&DpiFingerprint> for RuleUpdate {
         let name_len = name_bytes.len().min(64);
         name[..name_len].copy_from_slice(&name_bytes[..name_len]);
 
-        let action = match fp.action {
-            ProcessorAction::Pass => 0u32,
-            ProcessorAction::Drop => 1u32,
-            ProcessorAction::Mark { mark } => mark,
-        };
+        let action = fp.action.to_code();
 
         Self {
             id: *fp.id.as_bytes(),
@@ -224,7 +221,7 @@ impl ProcessorAction {
 }
 
 /// Convert an IPv6 address stored as `[u16; 8]` to a string.
-fn ipv6_array_to_string(addr: &[u16; 8]) -> String {
+pub fn ipv6_array_to_string(addr: &[u16; 8]) -> String {
     use std::fmt::Write;
     let mut s = String::with_capacity(39);
     for (i, segment) in addr.iter().enumerate() {
