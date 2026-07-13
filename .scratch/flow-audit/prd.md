@@ -178,8 +178,8 @@ GET  /api/events              # SSE 实时事件流
 
 ## Further Notes
 
-- 项目代号：Flow Audit
-- 仓库路径：`I:\WorkspaceForCloude\new_proj`
+- 项目代号：FlowFang
+- 仓库地址：https://github.com/minc-nice-100/FlowFang
 - 语言：Rust（stable channel）
 - 许可证：待定
 - 第一个里程碑：sampler + shared memory + analyzer 的端到端数据流可运行
