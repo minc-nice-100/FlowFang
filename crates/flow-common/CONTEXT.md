@@ -40,12 +40,6 @@ A fixed-size, `Pod`-compatible representation of `DpiFingerprint` for shared mem
 
 **Related terms:** [[DpiFingerprint]], [[ShmRingBuf]], [[flow-processor]]
 
-### RuleUpdate
-
-A fixed-size, `Pod`-compatible representation of `DpiFingerprint` for shared memory transfer. All fields are fixed-size arrays or scalars — no heap allocations. The analyzer converts `DpiFingerprint` → `RuleUpdate` via `From`, writes to shared memory, and the processor reads `RuleUpdate` directly. A sentinel `action = 0xFFFF_FFFF` signals deletion.
-
-**Related terms:** [[DpiFingerprint]], [[ShmRingBuf]], [[flow-processor]]
-
 ### DpiPattern
 
 The matching criteria for a fingerprint. Variants:
