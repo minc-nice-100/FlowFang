@@ -4,10 +4,9 @@ members = [
     "crates/flow-common",
     "crates/flow-ebpf",
     "crates/flow-sampler",
-    # TODO: add as implemented
-    # "crates/flow-analyzer",
-    # "crates/flow-analyzer-tui",
-    # "crates/flow-processor",
+    "crates/flow-analyzer",
+    "crates/flow-analyzer-tui",
+    "crates/flow-processor",
 ]
 
 [workspace.package]
@@ -28,7 +27,8 @@ anyhow = "1"
 log = "0.4"
 env_logger = "0.11"
 tokio = { version = "1", features = ["full"] }
-axum = { version = "0.8", features = ["tokio"] }
+tokio-stream = "0.1"
+axum = "0.8"
 ratatui = "0.29"
 aya = "0.13"
 clap = { version = "4", features = ["derive"] }
