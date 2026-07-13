@@ -9,16 +9,19 @@ use aya_ebpf::{
 };
 
 /// Sampled flow record — must match the user-space FlowSample exactly.
+/// Layout: timestamp(8) + src_ip(16) + dst_ip(16) + src_port(2) + dst_port(2)
+///          + protocol(1) + _pad(3) + payload(64) + payload_len(2) + pkt_size(4)
 #[repr(C)]
 #[derive(Copy, Clone)]
 struct FlowSample {
     timestamp: u64,
-    /// IPv4-in-IPv6 mapped addresses
+    /// IPv4-in-IPv6 mapped addresses, stored as [u16; 8] for fixed size.
     src_ip: [u16; 8],
     dst_ip: [u16; 8],
     src_port: u16,
     dst_port: u16,
     protocol: u8,
+    /// Padding to match userspace alignment.
     _pad: [u8; 3],
     payload: [u8; 64],
     payload_len: u16,
@@ -30,15 +33,12 @@ static SAMPLES: RingBuf = RingBuf::with_byte_size(256 * 1024, 0); // 256KB ring 
 
 #[classifier]
 pub fn sampler(ctx: TcContext) -> i32 {
-    // Try to reserve space in the ring buffer
     let Some(mut entry) = SAMPLES.reserve::<FlowSample>(0) else {
-        // Ring buffer full, drop sample
         return TC_ACT_OK;
     };
 
-    // Build flow sample from packet context
     let mut sample = FlowSample {
-        timestamp: 0, // TODO: bpf_ktime_get_ns()
+        timestamp: bpf_ktime_get_ns(),
         src_ip: [0u16; 8],
         dst_ip: [0u16; 8],
         src_port: 0,
@@ -50,22 +50,17 @@ pub fn sampler(ctx: TcContext) -> i32 {
         pkt_size: 0,
     };
 
-    // Extract L3/L4 headers and payload
-    // SAFETY: TcContext provides safe accessors; we check bounds.
     if let Ok(proto) = ctx.protocol() {
         sample.protocol = proto;
     }
 
-    // Read source IP
     if let Ok(src) = ctx.src() {
-        // Convert u32 IPv4 to IPv6-mapped representation
         let ip = src.to_be();
         sample.src_ip[5] = 0xFFFF;
         sample.src_ip[6] = ((ip >> 16) & 0xFFFF) as u16;
         sample.src_ip[7] = (ip & 0xFFFF) as u16;
     }
 
-    // Read destination IP
     if let Ok(dst) = ctx.dst() {
         let ip = dst.to_be();
         sample.dst_ip[5] = 0xFFFF;
@@ -73,34 +68,33 @@ pub fn sampler(ctx: TcContext) -> i32 {
         sample.dst_ip[7] = (ip & 0xFFFF) as u16;
     }
 
-    // Read source port
     if let Ok(port) = ctx.src_port() {
         sample.src_port = port;
     }
-
-    // Read destination port
     if let Ok(port) = ctx.dst_port() {
         sample.dst_port = port;
     }
-
-    // Read packet size
     if let Ok(len) = ctx.len() {
         sample.pkt_size = len;
     }
 
-    // Read payload (first 64 bytes)
-    // SAFETY: ctx.load reads at most the packet length
     if let Ok(bytes) = ctx.load(0) {
         let payload_len = bytes.len().min(64);
         sample.payload[..payload_len].copy_from_slice(&bytes[..payload_len]);
         sample.payload_len = payload_len as u16;
     }
 
-    // Submit the sample to the ring buffer
     entry.write(&sample);
     entry.submit(0);
 
     TC_ACT_OK
+}
+
+/// Get the current time in nanoseconds.
+/// Uses the aya-ebpf helper; falls back to 0 on older kernels.
+fn bpf_ktime_get_ns() -> u64 {
+    // SAFETY: bpf_ktime_get_ns is always available on kernels >= 5.5
+    unsafe { aya_ebpf::helpers::bpf_ktime_get_ns() }
 }
 
 #[panic_handler]

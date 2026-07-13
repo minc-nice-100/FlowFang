@@ -7,7 +7,7 @@
 use anyhow::{Context, Result};
 use clap::Parser;
 use flow_common::shm::ShmRingBuf;
-use flow_common::types::{DpiFingerprint, DpiPattern, ProcessorAction};
+use flow_common::types::RuleUpdate;
 use flow_ebpf::processor::{DpiPatternBytes, ProcessorBpf};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -61,7 +61,7 @@ fn main() -> Result<()> {
     log::info!("FlowFang Processor starting on {}", config.iface);
 
     // Open shared memory for receiving rules from the analyzer
-    let rules_shm = ShmRingBuf::<DpiFingerprint>::open(&config.rules_shm_name)
+    let rules_shm = ShmRingBuf::<RuleUpdate>::open(&config.rules_shm_name)
         .context("failed to open rules shared memory — is the analyzer running?")?;
 
     log::info!("Rules shared memory opened: flowfang-{}", config.rules_shm_name);
@@ -94,32 +94,33 @@ fn main() -> Result<()> {
         });
     }
 
-    // Track known rule IDs for delta detection
-    let mut known_ids: Vec<u32> = Vec::new();
-
     log::info!("Entering main loop — syncing rules from shared memory");
 
     while running.load(Ordering::SeqCst) {
         // Poll the shared memory for new rules
         while let Ok(Some(rule)) = rules_shm.try_pop() {
-            let id = rule.id.as_u128() as u32; // Truncate UUID to u32 for BPF map key
-
-            let pattern_bytes = pattern_to_bpf(&rule.pattern);
-
-            let action_code = match rule.action {
-                ProcessorAction::Pass => 0u32,
-                ProcessorAction::Drop => 1u32,
-                ProcessorAction::Mark { mark } => mark,
-            };
-
-            processor.write_rule(id, pattern_bytes, action_code)?;
-            if !known_ids.contains(&id) {
-                known_ids.push(id);
+            if rule.action == RuleUpdate::DELETE {
+                // Decode UUID from bytes
+                let id = u128::from_be_bytes(rule.id) as u32;
+                processor.remove_rule(id)?;
+                log::info!("Rule deleted: {}", hex::encode(&rule.name[..rule.name_len as usize]));
+            } else {
+                let id = u128::from_be_bytes(rule.id) as u32;
+                let pattern = DpiPatternBytes {
+                    pattern_type: rule.pattern_type,
+                    offset: rule.offset,
+                    length: rule.pattern_len,
+                    data: rule.pattern_data,
+                };
+                processor.write_rule(id, pattern, rule.action)?;
+                log::info!(
+                    "Rule synced: {} (action: {})",
+                    String::from_utf8_lossy(&rule.name[..rule.name_len as usize]),
+                    rule.action
+                );
             }
-            log::info!("Rule synced: {} (action: {:?})", rule.name, rule.action);
         }
 
-        // Small sleep to avoid busy-waiting
         std::thread::sleep(std::time::Duration::from_millis(100));
     }
 
@@ -128,38 +129,4 @@ fn main() -> Result<()> {
     log::info!("Processor detached. Goodbye.");
 
     Ok(())
-}
-
-/// Convert a DpiPattern to the fixed-size BPF representation.
-fn pattern_to_bpf(pattern: &DpiPattern) -> DpiPatternBytes {
-    match pattern {
-        DpiPattern::ExactMatch { offset, bytes } => {
-            let mut data = [0u8; 64];
-            let len = bytes.len().min(64);
-            data[..len].copy_from_slice(&bytes[..len]);
-            DpiPatternBytes {
-                pattern_type: 0,
-                offset: *offset,
-                length: len as u16,
-                data,
-            }
-        }
-        DpiPattern::ByteSeq { sequence } => {
-            let mut data = [0u8; 64];
-            let len = sequence.len().min(64);
-            data[..len].copy_from_slice(&sequence[..len]);
-            DpiPatternBytes {
-                pattern_type: 1,
-                offset: 0,
-                length: len as u16,
-                data,
-            }
-        }
-        _ => DpiPatternBytes {
-            pattern_type: 0xFF,
-            offset: 0,
-            length: 0,
-            data: [0u8; 64],
-        },
-    }
 }

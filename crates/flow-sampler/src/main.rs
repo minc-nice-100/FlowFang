@@ -47,25 +47,16 @@ struct SamplerConfig {
     shm_capacity: usize,
 }
 
-fn default_iface() -> String {
-    "eth0".into()
-}
-fn default_sampling_rate() -> u32 {
-    1
-}
-fn default_shm_name() -> String {
-    "flowfang-samples".into()
-}
-fn default_shm_capacity() -> usize {
-    65536
-}
+fn default_iface() -> String { "eth0".into() }
+fn default_sampling_rate() -> u32 { 1 }
+fn default_shm_name() -> String { "flowfang-samples".into() }
+fn default_shm_capacity() -> usize { 65536 }
 
 fn main() -> Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
     let args = Args::parse();
 
-    // Load configuration
     let config = if let Some(config_path) = &args.config {
         flow_common::config::load_config::<SamplerConfig>(config_path)?
     } else {
@@ -103,31 +94,10 @@ fn main() -> Result<()> {
 
     log::info!("Sampler eBPF program loaded and attached");
 
-    // Signal handling for graceful shutdown
+    // Signal handling
     let running = Arc::new(AtomicBool::new(true));
     let r = running.clone();
-
-    #[cfg(unix)]
-    {
-        let mut signals =
-            signal_hook::iterator::Signals::new(&[signal_hook::consts::SIGTERM, signal_hook::consts::SIGINT])?;
-        std::thread::spawn(move || {
-            for sig in signals.forever() {
-                log::info!("Received signal {}, shutting down...", sig);
-                r.store(false, Ordering::SeqCst);
-                break;
-            }
-        });
-    }
-
-    #[cfg(not(unix))]
-    {
-        let r = running.clone();
-        std::thread::spawn(move || {
-            std::io::stdin().read_line(&mut String::new()).ok();
-            r.store(false, Ordering::SeqCst);
-        });
-    }
+    setup_signal_handler(r);
 
     // Main loop: consume ringbuf and write to shared memory
     let ringbuf = sampler.ringbuf().context("failed to get ring buffer handle")?;
@@ -135,10 +105,8 @@ fn main() -> Result<()> {
     log::info!("Entering main loop — consuming ringbuf and writing to shared memory");
 
     while running.load(Ordering::SeqCst) {
-        // Poll the ring buffer for new samples
         if let Some(item) = ringbuf.next() {
             let sample: FlowSample = item.as_ref();
-            // Write to shared memory, drop if full
             match shm.try_push(sample) {
                 Ok(true) => { /* sample written */ }
                 Ok(false) => {
@@ -157,4 +125,26 @@ fn main() -> Result<()> {
     log::info!("Sampler detached. Goodbye.");
 
     Ok(())
+}
+
+/// Set up signal handling for graceful shutdown.
+#[cfg(unix)]
+fn setup_signal_handler(running: Arc<AtomicBool>) {
+    let mut signals = signal_hook::iterator::Signals::new(&[
+        signal_hook::consts::SIGTERM,
+        signal_hook::consts::SIGINT,
+    ])
+    .expect("failed to register signal handlers");
+    std::thread::spawn(move || {
+        for sig in signals.forever() {
+            log::info!("Received signal {}, shutting down...", sig);
+            running.store(false, Ordering::SeqCst);
+            break;
+        }
+    });
+}
+
+#[cfg(not(unix))]
+fn setup_signal_handler(_running: Arc<AtomicBool>) {
+    log::warn!("Signal handling not available on this platform");
 }

@@ -3,7 +3,8 @@
 //! Serves RESTful endpoints for the TUI dashboard and other consumers.
 //! Supports Unix socket and TCP listen modes (Docker daemon style).
 
-use crate::AppState;
+use crate::stats::TrafficStats;
+use crate::AnalyzerState;
 use anyhow::{Context, Result};
 use axum::{
     extract::State,
@@ -12,7 +13,7 @@ use axum::{
     routing::{delete, get, post},
     Json, Router,
 };
-use flow_common::types::DpiFingerprint;
+use flow_common::types::{DpiFingerprint, RuleUpdate};
 use serde::Serialize;
 use std::convert::Infallible;
 use std::sync::Arc;
@@ -52,14 +53,14 @@ struct FlowInfo {
 /// Serve the HTTP API on the given listen address.
 ///
 /// Format: `unix:///path/to/socket` or `tcp://host:port`
-pub async fn serve(listen: &str, app_state: Arc<AppState>) -> Result<()> {
+pub async fn serve(listen: &str, state: Arc<AnalyzerState>) -> Result<()> {
     let app = Router::new()
         .route("/api/status", get(status_handler))
         .route("/api/stats", get(stats_handler))
         .route("/api/fingerprints", get(list_fingerprints).post(create_fingerprint))
         .route("/api/fingerprints/{id}", delete(delete_fingerprint))
         .route("/api/events", get(events_handler))
-        .with_state(app_state);
+        .with_state(state);
 
     if let Some(socket_path) = listen.strip_prefix("unix://") {
         let _ = std::fs::remove_file(socket_path);
@@ -80,7 +81,7 @@ pub async fn serve(listen: &str, app_state: Arc<AppState>) -> Result<()> {
     Ok(())
 }
 
-async fn status_handler(State(_state): State<Arc<AppState>>) -> Json<StatusResponse> {
+async fn status_handler(State(_state): State<Arc<AnalyzerState>>) -> Json<StatusResponse> {
     Json(StatusResponse {
         version: env!("CARGO_PKG_VERSION"),
         uptime_secs: 0,
@@ -88,7 +89,7 @@ async fn status_handler(State(_state): State<Arc<AppState>>) -> Json<StatusRespo
     })
 }
 
-async fn stats_handler(State(state): State<Arc<AppState>>) -> Json<StatsResponse> {
+async fn stats_handler(State(state): State<Arc<AnalyzerState>>) -> Json<StatsResponse> {
     let stats = state.stats.read().await;
     let top = stats.top_flows(10);
 
@@ -101,8 +102,8 @@ async fn stats_handler(State(state): State<Arc<AppState>>) -> Json<StatsResponse
         top_flows: top
             .iter()
             .map(|(k, f)| FlowInfo {
-                src_ip: k.src_ip.to_string(),
-                dst_ip: k.dst_ip.to_string(),
+                src_ip: k.src_ip_str(),
+                dst_ip: k.dst_ip_str(),
                 src_port: k.src_port,
                 dst_port: k.dst_port,
                 protocol: k.protocol,
@@ -114,31 +115,34 @@ async fn stats_handler(State(state): State<Arc<AppState>>) -> Json<StatsResponse
 }
 
 async fn list_fingerprints(
-    State(state): State<Arc<AppState>>,
+    State(state): State<Arc<AnalyzerState>>,
 ) -> Json<Vec<DpiFingerprint>> {
     let fps = state.fingerprints.read().await;
     Json(fps.clone())
 }
 
 async fn create_fingerprint(
-    State(state): State<Arc<AppState>>,
+    State(state): State<Arc<AnalyzerState>>,
     Json(fp): Json<DpiFingerprint>,
 ) -> Result<Json<DpiFingerprint>, StatusCode> {
     let mut fps = state.fingerprints.write().await;
-    fps.push(fp.clone());
     // Write to rules shared memory for the processor
-    let _ = state.rules_shm.try_push(&fp);
+    let update: RuleUpdate = (&fp).into();
+    let _ = state.rules_shm.try_push(&update);
+    fps.push(fp.clone());
     Ok(Json(fp))
 }
 
 async fn delete_fingerprint(
-    State(state): State<Arc<AppState>>,
+    State(state): State<Arc<AnalyzerState>>,
     axum::extract::Path(id): axum::extract::Path<Uuid>,
 ) -> StatusCode {
     let mut fps = state.fingerprints.write().await;
     let before = fps.len();
     fps.retain(|f| f.id != id);
     if fps.len() < before {
+        // Send delete signal to processor
+        let _ = state.rules_shm.try_push(&RuleUpdate::delete(id));
         StatusCode::NO_CONTENT
     } else {
         StatusCode::NOT_FOUND
@@ -146,7 +150,7 @@ async fn delete_fingerprint(
 }
 
 async fn events_handler(
-    State(_state): State<Arc<AppState>>,
+    State(_state): State<Arc<AnalyzerState>>,
 ) -> Sse<impl tokio_stream::Stream<Item = Result<Event, Infallible>>> {
     let stream = tokio_stream::wrappers::IntervalStream::new(tokio::time::interval(
         std::time::Duration::from_secs(30),

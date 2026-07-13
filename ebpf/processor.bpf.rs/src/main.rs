@@ -8,7 +8,6 @@ use aya_ebpf::{
     programs::TcContext,
 };
 
-/// Maximum number of fingerprint rules.
 const MAX_FINGERPRINTS: u32 = 256;
 
 /// DPI pattern stored in BPF map (fixed-size representation).
@@ -18,7 +17,7 @@ struct DpiPatternBytes {
     pattern_type: u8,  // 0=Exact, 1=ByteSeq, 2=Regex, 3=TlsSni, 4=TlsJa3
     offset: u16,
     length: u16,
-    data: [u8; 64],    // Pattern bytes (truncated to 64)
+    data: [u8; 64],
 }
 
 /// Fingerprint lookup table: ID → Pattern.
@@ -31,16 +30,13 @@ static ACTIONS: HashMap<u32, u32> = HashMap::with_max_entries(MAX_FINGERPRINTS);
 
 #[classifier]
 pub fn processor(ctx: TcContext) -> i32 {
-    // Default action: pass
     let mut result = TC_ACT_OK;
 
-    // Read packet payload for matching
     let payload_bytes = match ctx.load(0) {
         Ok(bytes) => bytes,
         Err(_) => return TC_ACT_OK,
     };
 
-    // Iterate over all active fingerprints
     for id in 0..MAX_FINGERPRINTS {
         let Some(pattern) = FINGERPRINTS.get(&id) else {
             continue;
@@ -49,7 +45,6 @@ pub fn processor(ctx: TcContext) -> i32 {
         let matched = match (*pattern).pattern_type {
             0 => match_exact(&payload_bytes, (*pattern).offset, &(*pattern).data, (*pattern).length),
             1 => match_byte_seq(&payload_bytes, &(*pattern).data, (*pattern).length),
-            // 2=Regex, 3=TlsSni, 4=TlsJa3 — not implemented in eBPF
             _ => false,
         };
 
@@ -59,23 +54,21 @@ pub fn processor(ctx: TcContext) -> i32 {
             };
 
             match *action {
-                0 => result = TC_ACT_OK,                           // Pass
-                1 => result = TC_ACT_SHOT,                         // Drop
+                0 => result = TC_ACT_OK,             // Pass
+                1 => result = TC_ACT_SHOT,           // Drop
                 mark => {
-                    // Set skb->mark for nftables
-                    if let Ok(()) = ctx.set_mark(mark) {
-                        result = TC_ACT_OK;
-                    }
+                    // Set skb->mark for nftables to handle
+                    ctx.set_mark(mark);
+                    result = TC_ACT_OK;
                 }
             }
-            break; // First match wins
+            break;
         }
     }
 
     result
 }
 
-/// Match exact bytes at a specific offset.
 fn match_exact(payload: &[u8], offset: u16, pattern: &[u8], len: u16) -> bool {
     let offset = offset as usize;
     let len = len as usize;
@@ -87,7 +80,6 @@ fn match_exact(payload: &[u8], offset: u16, pattern: &[u8], len: u16) -> bool {
     pat == data
 }
 
-/// Match a byte sequence anywhere in the payload.
 fn match_byte_seq(payload: &[u8], pattern: &[u8], len: u16) -> bool {
     let len = len as usize;
     if len == 0 || len > payload.len() || len > pattern.len() {

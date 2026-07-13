@@ -10,7 +10,7 @@ mod stats;
 use anyhow::{Context, Result};
 use clap::Parser;
 use flow_common::shm::ShmRingBuf;
-use flow_common::types::{DpiFingerprint, FlowSample};
+use flow_common::types::{DpiFingerprint, FlowSample, RuleUpdate};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -48,10 +48,10 @@ fn default_rules_shm() -> String { "flowfang-rules".into() }
 fn default_rules_capacity() -> usize { 1024 }
 
 /// Shared application state.
-pub struct AppState {
+pub struct AnalyzerState {
     pub stats: RwLock<TrafficStats>,
     pub fingerprints: RwLock<Vec<DpiFingerprint>>,
-    pub rules_shm: ShmRingBuf<DpiFingerprint>,
+    pub rules_shm: ShmRingBuf<RuleUpdate>,
 }
 
 #[tokio::main]
@@ -79,7 +79,7 @@ async fn main() -> Result<()> {
     log::info!("Samples shared memory opened: flowfang-{}", config.samples_shm_name);
 
     // Create shared memory for rules
-    let rules_shm = ShmRingBuf::<DpiFingerprint>::create(
+    let rules_shm = ShmRingBuf::<RuleUpdate>::create(
         &config.rules_shm_name,
         config.rules_capacity,
     )
@@ -88,7 +88,7 @@ async fn main() -> Result<()> {
     log::info!("Rules shared memory created: flowfang-{}", config.rules_shm_name);
 
     // Shared state
-    let state = Arc::new(AppState {
+    let state = Arc::new(AnalyzerState {
         stats: RwLock::new(TrafficStats::default()),
         fingerprints: RwLock::new(Vec::new()),
         rules_shm,

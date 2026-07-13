@@ -23,10 +23,9 @@ BINARIES="flow-sampler flow-analyzer flow-analyzer-tui flow-processor"
 
 for bin in $BINARIES; do
     echo "Installing $bin..."
-    cp "$bin" "$INSTALL_DIR/$bin"
+    # Hard link instead of cp — avoids symlink issues on Alpine/busybox
+    ln -f "$bin" "$INSTALL_DIR/$bin" 2>/dev/null || cp "$bin" "$INSTALL_DIR/$bin"
     chmod 755 "$INSTALL_DIR/$bin"
-    # Use hard link instead of symlink for Alpine/busybox compatibility
-    ln -f "$INSTALL_DIR/$bin" "/usr/bin/$bin" 2>/dev/null || true
 done
 
 # --- Create config directory ---

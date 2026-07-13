@@ -69,6 +69,10 @@ pub struct ShmRingBuf<T: Pod> {
 impl<T: Pod> ShmRingBuf<T> {
     /// Create a new shared memory ring buffer.
     ///
+    /// If the buffer already exists, it is opened and its existing data
+    /// is preserved (important: the analyzer must not erase rules when
+    /// restarting). Header fields are initialized only on first creation.
+    ///
     /// `capacity` is the number of elements (not bytes). The underlying shared
     /// memory region includes space for the header plus `capacity` slots.
     pub fn create(name: &str, capacity: usize) -> Result<Self, io::Error> {
@@ -76,34 +80,46 @@ impl<T: Pod> ShmRingBuf<T> {
         let element_size = std::mem::size_of::<T>();
         let total_size = HEADER_SIZE + capacity * element_size;
 
-        // Remove any existing file
-        let _ = fs::remove_file(&path);
+        let file = if path.exists() {
+            // Open existing buffer, preserving data
+            OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(&path)?
+        } else {
+            // Create new buffer
+            let file = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create_new(true)
+                .open(&path)?;
 
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create_new(true)
-            .open(&path)?;
+            file.set_len(total_size as u64)?;
 
-        file.set_len(total_size as u64)?;
+            // SAFETY: The mmap is backed by a file we just created with the correct size.
+            let mmap = unsafe { MmapMut::map_mut(&file)? };
+            drop(file);
 
-        // SAFETY: The mmap is backed by a file we just created with the correct size.
+            // Initialize the header
+            let header = unsafe { &*(mmap.as_ptr() as *const Header) };
+            header.read_index.store(0, Ordering::SeqCst);
+            header.write_index.store(0, Ordering::SeqCst);
+            let header_mut = mmap.as_ptr() as *mut Header;
+            // SAFETY: We own the mmap and the header is within bounds.
+            unsafe {
+                (*header_mut).capacity = capacity as u64;
+                (*header_mut).element_size = element_size as u64;
+            }
+
+            return Ok(Self {
+                mmap,
+                _phantom: PhantomData,
+            });
+        };
+
+        // SAFETY: The mmap is backed by an existing file.
         let mmap = unsafe { MmapMut::map_mut(&file)? };
-        drop(file); // fd no longer needed after mmap
-
-        // Initialize the header
-        // SAFETY: The mmap is at least HEADER_SIZE bytes.
-        let header = unsafe { &*(mmap.as_ptr() as *const Header) };
-        header.read_index.store(0, Ordering::SeqCst);
-        header.write_index.store(0, Ordering::SeqCst);
-        // SAFETY: capacity and element_size are immutable after init, so writing
-        // through a shared reference via raw pointer is acceptable for initialization.
-        let header_mut = mmap.as_ptr() as *mut Header;
-        // SAFETY: We own the mmap and the header is within bounds.
-        unsafe {
-            (*header_mut).capacity = capacity as u64;
-            (*header_mut).element_size = element_size as u64;
-        }
+        drop(file);
 
         Ok(Self {
             mmap,

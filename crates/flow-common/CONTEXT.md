@@ -64,6 +64,6 @@ The canonical error type for the project. An enum covering:
 
 TOML or YAML files, loaded by file extension. Each binary has its own configuration struct. Resolution order:
 1. CLI argument
-2. `FLOW_AUDIT_CONFIG` environment variable
-3. `/etc/flow-audit/config.{toml,yaml,yml}`
+2. `FLOWFANG_CONFIG` environment variable
+3. `/etc/flowfang/config.{toml,yaml,yml}`
 4. `./config/default.{toml,yaml}`
