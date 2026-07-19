@@ -47,7 +47,10 @@ struct StatusResponse {
 
 #[derive(Deserialize, Debug)]
 struct StatsResponse {
+    // Cumulative totals are part of the API payload but not yet displayed.
+    #[allow(dead_code)]
     total_packets: u64,
+    #[allow(dead_code)]
     total_bytes: u64,
     packets_per_second: f64,
     bytes_per_second: f64,
