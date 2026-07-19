@@ -34,6 +34,7 @@ pub struct FlowSample {
     #[allow(dead_code)]
     pub pad: [u8; 3],
     /// First 64 bytes of payload.
+    #[serde(with = "serde_big_array::BigArray")]
     pub payload: [u8; 64],
     /// Actual payload length (may be > 64).
     pub payload_len: u16,
