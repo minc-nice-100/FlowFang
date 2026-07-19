@@ -457,18 +457,15 @@ async fn run_loop(
     addr: &std::sync::Arc<Addr>,
     _tx: &mpsc::UnboundedSender<DataEvent>,
 ) -> Result<()> {
-    let mut prev_pps = 0.0;
-    let mut prev_bps = 0.0;
-
     loop {
         // Drain pending data events.
         while let Ok(ev) = rx.try_recv() {
             match ev {
                 DataEvent::Stats(s) => {
-                    prev_pps = app.stats.packets_per_second;
-                    prev_bps = app.stats.bytes_per_second;
-                    app.last_pps = prev_pps;
-                    app.last_bps = prev_bps;
+                    // Record the previous rates for the trend indicators,
+                    // then install the fresh sample.
+                    app.last_pps = app.stats.packets_per_second;
+                    app.last_bps = app.stats.bytes_per_second;
                     app.stats = s;
                     app.connected = true;
                     app.last_error = None;
